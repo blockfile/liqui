@@ -30,9 +30,18 @@ async function lockLp(lpMint, lpAmountRawHint, lpDecimalsHint, years) {
   const BN = require('bn.js');
   const { SolanaStreamClient } = require('@streamflow/stream');
 
-  // Lock the LP we actually hold (Token-2022 mint).
+  // Lock the LP we actually hold (Token-2022 mint). The deposit that minted this
+  // LP just confirmed, and the public RPC pool can briefly lag, so retry the
+  // balance read before giving up — a single stale 0 read otherwise throws a
+  // false "no LP tokens to lock" even though the LP is sitting in the wallet.
   const { programId } = await getMintInfo(connection, lpMint);
-  const balance = await readTokenBalance(connection, lpMint, wallet.publicKey, programId);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let balance = 0n;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    balance = await readTokenBalance(connection, lpMint, wallet.publicKey, programId);
+    if (balance > 0n) break;
+    await sleep(1500);
+  }
   if (balance <= 0n) throw new Error('no LP tokens to lock');
   const total = new BN(balance.toString());
 
