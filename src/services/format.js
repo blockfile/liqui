@@ -132,7 +132,7 @@ function toPublicActivityRow(s, price) {
 
 // Map the backend aggregates to LiquiToken's flat /stats object. liquiInLp and
 // marketCap have no backend source yet -> null (frontend shows its placeholder).
-function toPublicStats({ stats, unclaimedSol }) {
+function toPublicStats({ stats, unclaimedSol, operatingWallet }) {
   const usedForLiquidity = +(stats.total_sol_spent_buy + stats.total_sol_spent_lp).toFixed(6);
   return {
     liquiInLp: null,
@@ -143,7 +143,9 @@ function toPublicStats({ stats, unclaimedSol }) {
     totalUsedForLiquidity: usedForLiquidity,
     totalForDevTech: stats.total_dev_fee,
     totalLiquidityAdded: stats.total_sol_spent_lp,
-    devWalletAddress: config.devWallet,
+    // The dashboard header shows the operating wallet — the signer that performs
+    // claim/buy/LP/lock (whose activity the table lists) — NOT the 2% recipient.
+    devWalletAddress: operatingWallet ?? config.devWallet,
   };
 }
 

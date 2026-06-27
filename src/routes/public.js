@@ -8,6 +8,7 @@ const express = require('express');
 const repo = require('../db/repository');
 const { getUnclaimedSol } = require('../services/metrics');
 const { getSolPriceUsd } = require('../solana/price');
+const { walletPubkey } = require('../solana/connection');
 const { toPublicActivityRow, toPublicStats } = require('../services/format');
 
 const router = express.Router();
@@ -44,7 +45,7 @@ const loadStats = cached(15000, async () => {
     repo.getStats(),
     getUnclaimedSol().catch(() => ({ sol: null })),
   ]);
-  return toPublicStats({ stats, unclaimedSol: unclaimed.sol });
+  return toPublicStats({ stats, unclaimedSol: unclaimed.sol, operatingWallet: walletPubkey() });
 });
 
 // GET /activity — array of transactions, newest first (API_SPEC.md §1)
