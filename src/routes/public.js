@@ -7,6 +7,7 @@
 const express = require('express');
 const repo = require('../db/repository');
 const { getUnclaimedSol } = require('../services/metrics');
+const { getMarketData } = require('../services/marketdata');
 const { getSolPriceUsd } = require('../solana/price');
 const { walletPubkey } = require('../solana/connection');
 const { toPublicActivityRow, toPublicStats } = require('../services/format');
@@ -41,11 +42,17 @@ const loadActivity = cached(3000, async () => {
 });
 
 const loadStats = cached(15000, async () => {
-  const [stats, unclaimed] = await Promise.all([
+  const [stats, unclaimed, market] = await Promise.all([
     repo.getStats(),
     getUnclaimedSol().catch(() => ({ sol: null })),
+    getMarketData().catch(() => ({ liquiInLp: null, marketCap: null })),
   ]);
-  return toPublicStats({ stats, unclaimedSol: unclaimed.sol, operatingWallet: walletPubkey() });
+  return toPublicStats({
+    stats,
+    unclaimedSol: unclaimed.sol,
+    operatingWallet: walletPubkey(),
+    market,
+  });
 });
 
 // GET /activity — array of transactions, newest first (API_SPEC.md §1)

@@ -132,11 +132,11 @@ function toPublicActivityRow(s, price) {
 
 // Map the backend aggregates to LiquiToken's flat /stats object. liquiInLp and
 // marketCap have no backend source yet -> null (frontend shows its placeholder).
-function toPublicStats({ stats, unclaimedSol, operatingWallet }) {
+function toPublicStats({ stats, unclaimedSol, operatingWallet, market = {} }) {
   const usedForLiquidity = +(stats.total_sol_spent_buy + stats.total_sol_spent_lp).toFixed(6);
   return {
-    liquiInLp: null,
-    marketCap: null,
+    liquiInLp: market.liquiInLp ?? null, // tokens in the LP (DexScreener); null until listed
+    marketCap: market.marketCap ?? null, // USD market cap (DexScreener); null until listed
     unclaimedFeesSol: unclaimedSol == null ? null : +unclaimedSol.toFixed(6),
     autoClaimThresholdSol: config.claimThresholdSol,
     totalCreatorFeesClaimed: stats.total_sol_claimed,
