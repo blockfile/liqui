@@ -158,7 +158,14 @@ async function depositToPool(poolKey, baseTokenHint, quoteSolHint) {
   const { programId: baseProgram } = await getMintInfo(connection, poolData.baseMint);
   const baseBalance = await readTokenBalance(connection, poolData.baseMint, wallet.publicKey, baseProgram);
   if (baseBalance <= 0n) throw new Error('no base tokens to add as liquidity');
-  const baseAmount = new BN(baseBalance.toString());
+  // The SDK sizes the deposit's max base at the requested amount PLUS a slippage
+  // buffer, so requesting our FULL balance makes maxBase exceed what we hold and the
+  // (Token-2022) TransferChecked fails with "insufficient funds" (0x1) whenever the
+  // pool ratio drifts. Request a margin below the balance (slippage% + 1%) so the
+  // buffered max still fits. Leftover dust is picked up by the next deposit.
+  const marginBps = BigInt(Math.round((config.slippagePct + 1) * 100));
+  const baseAmount = new BN(((baseBalance * (10000n - marginBps)) / 10000n).toString());
+  if (baseAmount.lten(0)) throw new Error('base balance too small to add as liquidity after margin');
 
   const liqState = await online.liquiditySolanaState(poolKey, wallet.publicKey);
   const { lpToken } = offline.depositAutocompleteQuoteAndLpTokenFromBase(liqState, baseAmount, config.slippagePct);
