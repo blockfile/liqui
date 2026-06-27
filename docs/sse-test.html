@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>liqui — SSE test</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; background: #0b1020; color: #cbd5e1; margin: 0; padding: 24px; }
+    h1 { color: #fff; font-size: 18px; }
+    .bar { display: flex; gap: 10px; align-items: center; margin: 12px 0 18px; }
+    input, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #334155; background: #111827; color: #e2e8f0; }
+    button { cursor: pointer; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; display: inline-block; }
+    .dot.live { background: #22c55e; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; margin-bottom: 18px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
+    .card .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+    .card .val { color: #60a5fa; font-size: 20px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #1f2937; font-size: 13px; }
+    th { color: #64748b; font-weight: 500; }
+    .pill { background: #1e293b; border-radius: 6px; padding: 2px 8px; font-size: 11px; }
+    .log { color: #475569; font-size: 12px; margin-top: 8px; white-space: pre-wrap; max-height: 140px; overflow:auto; }
+    a { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <h1>liqui — live dashboard (SSE test)</h1>
+  <div class="bar">
+    <label>API base:</label>
+    <input id="api" value="http://localhost:3000" size="36" />
+    <button onclick="start()">Connect</button>
+    <button onclick="fire()">Fire cycle</button>
+    <span class="dot" id="dot"></span><span id="state">disconnected</span>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <h3>Activity (live)</h3>
+  <table>
+    <thead><tr><th>Time</th><th>Type</th><th>Amount</th><th>USD</th><th>Alloc</th><th>Status</th><th>Tx</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="log" id="log"></div>
+
+<script>
+let es, API, rows = [];
+const $ = (id) => document.getElementById(id);
+const log = (m) => { $('log').textContent = (new Date().toLocaleTimeString() + '  ' + m + '\n') + $('log').textContent; };
+
+function renderCards(c) {
+  if (!c) return;
+  const items = [
+    ['Auto claim every', c.autoClaimEverySol + ' SOL'],
+    ['Unclaimed fees', (c.unclaimedSol ?? '–') + ' SOL'],
+    ['Total claimed', (c.totalClaimedSol ?? 0).toFixed(4) + ' SOL'],
+    ['For liquidity (98%)', (c.totalForLiquiditySol ?? 0).toFixed(4) + ' SOL'],
+    ['For dev (2%)', (c.totalForDevSol ?? 0).toFixed(4) + ' SOL'],
+    ['Locks', c.locksCount ?? 0],
+  ];
+  $('cards').innerHTML = items.map(([l,v]) => `<div class="card"><div class="label">${l}</div><div class="val">${v}</div></div>`).join('');
+}
+
+function timeAgo(iso){ const s=(Date.now()-new Date(iso))/1000|0; return s<60?`${s}s ago`:s<3600?`${s/60|0}m ago`:`${s/3600|0}h ago`; }
+function renderRows() {
+  $('rows').innerHTML = rows.slice(0,50).map(r => `<tr>
+    <td>${timeAgo(r.at)}</td><td>${r.type}</td>
+    <td>${r.amountSol ?? '–'}</td><td>${r.usdValue != null ? '$'+r.usdValue : '—'}</td>
+    <td>${r.allocationPct != null ? r.allocationPct+'%' : '–'}</td>
+    <td><span class="pill">${r.status}</span></td>
+    <td>${r.txHash ? `<a target="_blank" href="https://solscan.io/tx/${r.txHash}">${r.txHash.slice(0,6)}…</a>` : '–'}</td>
+  </tr>`).join('');
+}
+setInterval(renderRows, 1000); // keep "x ago" ticking, no network
+
+async function fire() {
+  try {
+    const r = await fetch(`${API}/api/run`, { method: 'POST' }); // API_KEY blank locally
+    log('POST /api/run → ' + r.status);
+  } catch (e) { log('fire failed: ' + e.message); }
+}
+
+async function start() {
+  API = $('api').value.replace(/\/$/, '');
+  if (es) es.close();
+
+  // 1) initial load
+  try {
+    const [s, t] = await Promise.all([
+      fetch(`${API}/api/status`).then(r=>r.json()),
+      fetch(`${API}/api/transactions?limit=50`).then(r=>r.json()),
+    ]);
+    renderCards(s.cards); rows = t.items; renderRows();
+    log('loaded status + transactions');
+  } catch (e) { log('initial load failed: ' + e.message); }
+
+  // 2) live stream
+  es = new EventSource(`${API}/api/stream`);
+  es.addEventListener('hello', () => { $('dot').className='dot live'; $('state').textContent='live'; log('stream connected'); });
+  es.addEventListener('step', e => { rows.unshift(JSON.parse(e.data)); rows = rows.slice(0,100); renderRows(); log('step: ' + JSON.parse(e.data).type); });
+  es.addEventListener('cycle', e => { log('cycle: ' + e.data); fetch(`${API}/api/status`).then(r=>r.json()).then(s=>renderCards(s.cards)); });
+  es.addEventListener('unclaimed', e => { const u=JSON.parse(e.data); log('unclaimed: '+u.unclaimedSol+' SOL'); });
+  es.addEventListener('scheduler', e => log('scheduler: ' + e.data));
+  es.onerror = () => { $('dot').className='dot'; $('state').textContent='reconnecting…'; };
+}
+</script>
+</body>
+</html>
